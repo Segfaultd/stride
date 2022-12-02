@@ -9,14 +9,14 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 
-	stakeibckeeper "github.com/Stride-Labs/stride/x/stakeibc/keeper"
-	stakeibctypes "github.com/Stride-Labs/stride/x/stakeibc/types"
+	stakeibckeeper "github.com/Stride-Labs/stride/v3/x/stakeibc/keeper"
+	stakeibctypes "github.com/Stride-Labs/stride/v3/x/stakeibc/types"
 
-	"github.com/Stride-Labs/stride/x/app_router/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+
+	"github.com/Stride-Labs/stride/v3/x/app-router/types"
 )
 
 type (
@@ -24,19 +24,15 @@ type (
 		// *cosmosibckeeper.Keeper
 		Cdc            codec.BinaryCodec
 		storeKey       sdk.StoreKey
-		memKey         sdk.StoreKey
 		paramstore     paramtypes.Subspace
-		scopedKeeper   capabilitykeeper.ScopedKeeper
 		stakeibcKeeper stakeibckeeper.Keeper
 	}
 )
 
 func NewKeeper(
 	Cdc codec.BinaryCodec,
-	storeKey,
-	memKey sdk.StoreKey,
+	storeKey sdk.StoreKey,
 	ps paramtypes.Subspace,
-	scopedKeeper capabilitykeeper.ScopedKeeper,
 	stakeibcKeeper stakeibckeeper.Keeper,
 ) *Keeper {
 	// set KeyTable if it has not already been set
@@ -47,9 +43,7 @@ func NewKeeper(
 	return &Keeper{
 		Cdc:            Cdc,
 		storeKey:       storeKey,
-		memKey:         memKey,
 		paramstore:     ps,
-		scopedKeeper:   scopedKeeper,
 		stakeibcKeeper: stakeibcKeeper,
 	}
 }
@@ -58,14 +52,9 @@ func (k Keeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
-// ClaimCapability claims the channel capability passed via the OnOpenChanInit callback
-func (k *Keeper) ClaimCapability(ctx sdk.Context, cap *capabilitytypes.Capability, name string) error {
-	return k.scopedKeeper.ClaimCapability(ctx, cap, name)
-}
-
 // TODO: Add a LiquidStake function call (maybe)
 func (k Keeper) LiquidStakeTransferPacket(ctx sdk.Context, parsedReceiver *types.ParsedReceiver, token sdk.Coin, labels []metrics.Label) error {
-	msg := stakeibctypes.MsgLiquidStake{
+	msg := &stakeibctypes.MsgLiquidStake{
 		// TODO: do we need a creator here?
 		// we could use the recipient...
 		// it's a bit strange because this address didn't "create" the liquid stake transaction
@@ -78,7 +67,9 @@ func (k Keeper) LiquidStakeTransferPacket(ctx sdk.Context, parsedReceiver *types
 	if err := msg.ValidateBasic(); err != nil {
 		return err
 	}
-	err := k.stakeibcKeeper.LiquidStake(
+
+	msgServer := stakeibckeeper.NewMsgServerImpl(k.stakeibcKeeper)
+	_, err := msgServer.LiquidStake(
 		// goCtx
 		sdk.WrapSDKContext(ctx),
 		// MsgLiquidStake
@@ -92,7 +83,7 @@ func (k Keeper) LiquidStakeTransferPacket(ctx sdk.Context, parsedReceiver *types
 		telemetry.SetGaugeWithLabels(
 			[]string{"tx", "msg", "ibc", "transfer"},
 			float32(token.Amount.Int64()),
-			[]metrics.Label{telemetry.NewLabel(coretypes.LabelDenom, token.Denom)},
+			[]metrics.Label{telemetry.NewLabel("label_denom", token.Denom)},
 		)
 
 		telemetry.IncrCounterWithLabels(

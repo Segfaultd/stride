@@ -117,6 +117,9 @@ import (
 	interchainquerykeeper "github.com/Stride-Labs/stride/v3/x/interchainquery/keeper"
 	interchainquerytypes "github.com/Stride-Labs/stride/v3/x/interchainquery/types"
 
+	router "github.com/Stride-Labs/stride/v3/x/app-router"
+	routerkeeper "github.com/Stride-Labs/stride/v3/x/app-router/keeper"
+	routertypes "github.com/Stride-Labs/stride/v3/x/app-router/types"
 	"github.com/Stride-Labs/stride/v3/x/claim"
 	claimkeeper "github.com/Stride-Labs/stride/v3/x/claim/keeper"
 	claimtypes "github.com/Stride-Labs/stride/v3/x/claim/types"
@@ -194,6 +197,7 @@ var (
 		recordsmodule.AppModuleBasic{},
 		icacallbacksmodule.AppModuleBasic{},
 		claim.AppModuleBasic{},
+		router.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -266,6 +270,7 @@ type StrideApp struct {
 	// MonitoringKeeper    monitoringpkeeper.Keeper
 	ICAControllerKeeper icacontrollerkeeper.Keeper
 	ICAHostKeeper       icahostkeeper.Keeper
+	RouterKeeper        routerkeeper.Keeper
 
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
@@ -319,7 +324,7 @@ func NewStrideApp(
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, // monitoringptypes.StoreKey,
-		stakeibcmoduletypes.StoreKey,
+		stakeibcmoduletypes.StoreKey, routertypes.StoreKey,
 		epochsmoduletypes.StoreKey,
 		interchainquerytypes.StoreKey,
 		icacontrollertypes.StoreKey, icahosttypes.StoreKey,
@@ -509,6 +514,13 @@ func NewStrideApp(
 	stakeibcModule := stakeibcmodule.NewAppModule(appCodec, app.StakeibcKeeper, app.AccountKeeper, app.BankKeeper)
 	stakeibcIBCModule := stakeibcmodule.NewIBCModule(app.StakeibcKeeper)
 
+	app.RouterKeeper = *routerkeeper.NewKeeper(
+		appCodec,
+		keys[routertypes.StoreKey],
+		app.GetSubspace(routertypes.ModuleName),
+		app.StakeibcKeeper)
+	routerModule := router.NewAppModule(appCodec, app.RouterKeeper, app.AccountKeeper, app.BankKeeper)
+
 	// Register Gov (must be registerd after stakeibc)
 	govRouter := govtypes.NewRouter()
 	govRouter.AddRoute(govtypes.RouterKey, govtypes.ProposalHandler).
@@ -580,11 +592,12 @@ func NewStrideApp(
 	// - transfer
 	// - base app
 	recordsStack := recordsmodule.NewIBCModule(app.RecordsKeeper, transferIBCModule)
+	routerIBCModule := router.NewIBCModule(app.RouterKeeper, recordsStack)
 
 	// Create static IBC router, add transfer route, then set and seal it
 	ibcRouter := ibcporttypes.NewRouter()
 	ibcRouter.
-		AddRoute(ibctransfertypes.ModuleName, recordsStack).
+		AddRoute(ibctransfertypes.ModuleName, routerIBCModule).
 		AddRoute(icacontrollertypes.SubModuleName, icamiddlewareStack).
 		AddRoute(icahosttypes.SubModuleName, icaHostIBCModule).
 		// Note, authentication module packets are routed to the top level of the middleware stack
@@ -633,6 +646,7 @@ func NewStrideApp(
 		recordsModule,
 		icacallbacksModule,
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
+		routerModule,
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -668,6 +682,7 @@ func NewStrideApp(
 		icacallbacksmoduletypes.ModuleName,
 		claimtypes.ModuleName,
 		authz.ModuleName,
+		routertypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/beginBlockers
 	)
 
@@ -699,6 +714,7 @@ func NewStrideApp(
 		icacallbacksmoduletypes.ModuleName,
 		claimtypes.ModuleName,
 		authz.ModuleName,
+		routertypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/endBlockers
 	)
 
@@ -735,6 +751,7 @@ func NewStrideApp(
 		icacallbacksmoduletypes.ModuleName,
 		claimtypes.ModuleName,
 		authz.ModuleName,
+		routertypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
 	)
 
@@ -1000,6 +1017,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(icahosttypes.SubModuleName)
 	paramsKeeper.Subspace(recordsmoduletypes.ModuleName)
 	paramsKeeper.Subspace(icacallbacksmoduletypes.ModuleName)
+	paramsKeeper.Subspace(routertypes.ModuleName).WithKeyTable(routertypes.ParamKeyTable())
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper

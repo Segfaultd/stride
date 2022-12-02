@@ -2,8 +2,8 @@ package app_router
 
 import (
 	"fmt"
+	"strconv"
 
-	"cosmossdk.io/math"
 	"github.com/armon/go-metrics"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -13,8 +13,8 @@ import (
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	porttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 
-	"github.com/Stride-Labs/stride/x/app_router/keeper"
-	"github.com/Stride-Labs/stride/x/app_router/types"
+	"github.com/Stride-Labs/stride/v3/x/app-router/keeper"
+	"github.com/Stride-Labs/stride/v3/x/app-router/types"
 
 	// "google.golang.org/protobuf/proto" <-- this breaks tx parsing
 
@@ -163,7 +163,7 @@ func (im IBCModule) OnRecvPacket(
 	// parse out any forwarding info
 	parsedReceiver, err := types.ParseReceiverData(data.Receiver)
 	if err != nil {
-		return channeltypes.NewErrorAcknowledgement(err)
+		return channeltypes.NewErrorAcknowledgement(err.Error())
 	}
 
 	// move on to the next middleware
@@ -176,7 +176,7 @@ func (im IBCModule) OnRecvPacket(
 	newData.Receiver = parsedReceiver.StrideAccAddress.String()
 	bz, err := transfertypes.ModuleCdc.MarshalJSON(&newData)
 	if err != nil {
-		return channeltypes.NewErrorAcknowledgement(err)
+		return channeltypes.NewErrorAcknowledgement(err.Error())
 	}
 	newPacket := packet
 	newPacket.Data = bz
@@ -208,13 +208,13 @@ func (im IBCModule) OnRecvPacket(
 			return ack
 		} else {
 			prefixedDenom := transfertypes.GetDenomPrefix(packet.GetDestPort(), packet.GetDestChannel()) + newData.Denom
-			denom = transfertypes.ParseDenomTrace(prefixedDenom).IBCDenom()
+			denom = transfertypes.ParseDenomTrace(prefixedDenom).BaseDenom
 		}
-		unit, err := math.ParseUint(newData.Amount)
+		unit, err := strconv.ParseUint(newData.Amount, 10, 64)
 		if err != nil {
 			channeltypes.NewErrorAcknowledgement(err.Error())
 		}
-		var token = sdk.NewCoin(denom, sdk.NewIntFromUint64(unit.Uint64()))
+		var token = sdk.NewCoin(denom, sdk.NewIntFromUint64(unit))
 
 		err = im.keeper.LiquidStakeTransferPacket(ctx, parsedReceiver, token, []metrics.Label{})
 		if err != nil {
